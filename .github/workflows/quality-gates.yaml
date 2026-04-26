@@ -1,0 +1,64 @@
+name: Quality Gates
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - uat
+      - main
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [backend, worker]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: ${{ matrix.app }}
+
+      - name: Setup GO
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "lts"
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          java-version: "25"
+          distribution: "temurin"
+
+      - name: Go lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11
+          args: ./${{ matrix.app }}
+
+      - name: Unit tests
+        run: go test ./${{ matrix.app }}
+
+      - name: Depcheck
+        uses: dependency-check/Dependency-Check_Action@v1.1.0
+        id: depcheck
+        with:
+          project: go-dem
+          path: ./${{ matrix.app }}
+          format: HTML
+          out: ./${{ matrix.app }}-odc-reports
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+
+      - name: Upload Depcheck report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.app }}-odc-reports
+          path: ./${{ matrix.app }}-odc-reports

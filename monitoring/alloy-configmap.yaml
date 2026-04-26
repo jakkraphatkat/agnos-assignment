@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  namespace: monitoring
+  labels:
+    app: alloy
+data:
+  config.alloy: |
+    logging {
+      level  = "info"
+      format = "logfmt"
+    }
+
+    local.file_match "containers" {
+      path_targets = [
+        {
+          "__path__" = "/var/log/containers/*.log",
+          "job"      = "kubernetes-pods",
+          "cluster"  = "agnos",
+        },
+      ]
+    }
+
+    loki.source.file "containers" {
+      targets    = local.file_match.containers.targets
+      forward_to = [loki.process.containers.receiver]
+    }
+
+    loki.process "containers" {
+      stage.cri {}
+
+      stage.regex {
+        source = "filename"
+        expression = "^/var/log/containers/(?P<pod>[^_]+)_(?P<namespace>[^_]+)_(?P<container>.+)-[a-f0-9]+\\.log$"
+      }
+
+      stage.json {
+        expressions = {
+          level   = "level",
+          service = "service",
+          env     = "env",
+        }
+      }
+
+      stage.labels {
+        values = {
+          job       = "",
+          cluster   = "",
+          namespace = "",
+          pod       = "",
+          container = "",
+          service   = "container",
+          service_name = "container",
+          level     = "",
+          env       = "",
+        }
+      }
+
+      forward_to = [loki.write.default.receiver]
+    }
+
+    loki.write "default" {
+      endpoint {
+        url = "http://loki:3100/loki/api/v1/push"
+      }
+    }

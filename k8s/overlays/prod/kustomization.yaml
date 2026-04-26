@@ -1,0 +1,52 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: agnos-prod
+
+resources:
+  - ../../base
+  - namespace.yaml
+
+images:
+  - name: rywj/backend
+    newName: rywj/backend
+    newTag: prod
+  - name: rywj/worker
+    newName: rywj/worker
+    newTag: prod
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: agnos-app-config
+    literals:
+      - APP_ENV=prod
+      - PORT=8080
+      - SHUTDOWN_TIMEOUT=20s
+      - WORKER_INTERVAL=1m
+      - HEALTH_PORT=8081
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_BUCKET=agnos-prod-records
+      - MINIO_REGION=us-east-1
+      - MINIO_RECORD_PREFIX=prod/records
+      - MINIO_USE_SSL=false
+
+secretGenerator:
+  # Demo-only credentials for local/testing use.
+  # Do not keep real-world secrets in overlays; use external secret management.
+  - name: agnos-minio-secrets
+    literals:
+      - MINIO_ROOT_USER=prod-minio-user
+      - MINIO_ROOT_PASSWORD=prod-minio-password
+  # Demo-only app secret for backend/worker local testing.
+  # Do not keep real-world secrets in overlays; use external secret management.
+  - name: agnos-app-secrets
+    literals:
+      - MINIO_ACCESS_KEY=prod-minio-user
+      - MINIO_SECRET_KEY=prod-minio-password
+
+patches:
+  - path: backend-replica-patch.yaml
+  - path: backend-hpa-patch.yaml
+  - path: minio-pvc-patch.yaml

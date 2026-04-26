@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+  labels:
+    app: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    rule_files:
+      - /etc/prometheus/alerts.yml
+
+    scrape_configs:
+      - job_name: backend
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - backend.agnos-dev.svc.cluster.local:80
+              - backend.agnos-uat.svc.cluster.local:80
+              - backend.agnos-prod.svc.cluster.local:80
+
+      - job_name: worker
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - worker.agnos-dev.svc.cluster.local:8081
+              - worker.agnos-uat.svc.cluster.local:8081
+              - worker.agnos-prod.svc.cluster.local:8081
+
+      - job_name: kube-state-metrics
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - kube-state-metrics:8080
+
+  alerts.yml: |
+    groups:
+      - name: agnos-alerts
+        rules:
+          - alert: BackendDown
+            expr: |
+              kube_deployment_spec_replicas{deployment="backend",namespace=~"agnos-(dev|uat|prod)"} > 0
+              and on(namespace, deployment)
+              kube_deployment_status_replicas_available{deployment="backend",namespace=~"agnos-(dev|uat|prod)"} < 1
+            for: 2m
+            labels:
+              severity: critical
+              service: backend
+            annotations:
+              summary: Backend is down
+              description: Kubernetes reports backend deployment has no available replicas for this namespace while replicas are desired.
+
+          - alert: BackendCrashLooping
+            expr: |
+              max by (namespace, pod, container) (
+                kube_pod_container_status_waiting_reason{
+                  namespace=~"agnos-(dev|uat|prod)",
+                  pod=~"backend-.*",
+                  reason="CrashLoopBackOff"
+                }
+              ) > 0
+            for: 5m
+            labels:
+              severity: critical
+              service: backend
+            annotations:
+              summary: Backend pod is crash looping
+              description: Backend container is in CrashLoopBackOff for more than 5 minutes.
+
+          - alert: BackendFrequentRestarts
+            expr: |
+              sum by (namespace, pod, container) (
+                increase(
+                  kube_pod_container_status_restarts_total{
+                    namespace=~"agnos-(dev|uat|prod)",
+                    pod=~"backend-.*"
+                  }[10m]
+                )
+              ) >= 3
+            for: 5m
+            labels:
+              severity: warning
+              service: backend
+            annotations:
+              summary: Backend container restarts are high
+              description: Backend container restarted 3 or more times in 10 minutes.
+
+          - alert: HighBackendErrorRate
+            expr: |
+              (
+                sum(rate(agnos_http_requests_total{service="backend",status=~"5.."}[5m]))
+                /
+                clamp_min(sum(rate(agnos_http_requests_total{service="backend"}[5m])), 1)
+              ) > 0.05
+            for: 5m
+            labels:
+              severity: warning
+              service: backend
+            annotations:
+              summary: Backend error rate is high
+              description: Backend 5xx error ratio is above 5% for 5 minutes.
+
+          - alert: BackendIncidentSimulation
+            expr: increase(agnos_http_requests_total{service="backend",path="/mock/500",status=~"5.."}[1m]) > 0
+            for: 0m
+            labels:
+              severity: warning
+              service: backend
+            annotations:
+              summary: Simulated backend incident triggered
+              description: The synthetic endpoint /mock/500 returned at least one 5xx in the last minute.
+
+          - alert: WorkerRunFailures
+            expr: increase(agnos_worker_runs_total{status="error"}[5m]) > 0
+            for: 0m
+            labels:
+              severity: warning
+              service: worker
+            annotations:
+              summary: Worker run failed
+              description: At least one worker run failed in the last 5 minutes.
+
+          - alert: WorkerStalled
+            expr: time() - agnos_worker_last_success_timestamp_seconds > 180
+            for: 2m
+            labels:
+              severity: critical
+              service: worker
+            annotations:
+              summary: Worker appears stalled
+              description: No successful worker run has been observed for at least 3 minutes.
+
+          - alert: WorkerDownFromKubeMetrics
+            expr: kube_deployment_status_replicas_available{deployment="worker"} < 1
+            for: 2m
+            labels:
+              severity: critical
+              service: worker
+            annotations:
+              summary: Worker deployment has no available replicas
+              description: Kubernetes reports worker deployment available replicas below 1.
+
+          - alert: KubernetesPodCrashLooping
+            expr: increase(kube_pod_container_status_restarts_total[10m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+              service: worker
+            annotations:
+              summary: Kubernetes pods are restarting
+              description: One or more containers restarted in the last 10 minutes.
