@@ -59,8 +59,7 @@ jobs:
           project: go-dem
           path: ./${{ matrix.app }}
           format: HTML
-          out: ./${{ matrix.app }}-odc-reports
-          args: >
+          others: >
             --failOnCVSS 7
             --enableRetired
 
@@ -69,4 +68,4 @@ jobs:
         if: always()
         with:
           name: ${{ matrix.app }}-odc-reports
-          path: ./${{ matrix.app }}-odc-reports
+          path: ./reports
