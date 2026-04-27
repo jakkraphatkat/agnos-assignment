@@ -8,8 +8,94 @@ on:
       - main
 
 jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      env_tag: ${{ steps.resolve.outputs.env_tag }}
+      bump: ${{ steps.resolve.outputs.bump }}
+      backend_version_tag: ${{ steps.resolve.outputs.backend_version_tag }}
+      worker_version_tag: ${{ steps.resolve.outputs.worker_version_tag }}
+    steps:
+      - name: Resolve prod deploy version from Docker Hub + Conventional Commits (mock)
+        id: resolve
+        env:
+          DOCKERHUB_NAMESPACE: rywj
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            env_tag="prod"
+          elif [[ "${GITHUB_REF_NAME}" == "uat" ]]; then
+            env_tag="uat"
+          else
+            env_tag="dev"
+          fi
+
+          echo "env_tag=$env_tag" >> "$GITHUB_OUTPUT"
+
+          if [[ "$env_tag" != "prod" ]]; then
+            echo "bump=none" >> "$GITHUB_OUTPUT"
+            echo "backend_version_tag=$env_tag" >> "$GITHUB_OUTPUT"
+            echo "worker_version_tag=$env_tag" >> "$GITHUB_OUTPUT"
+            echo "[MOCK] Non-prod branch detected. Version tags use env tag: $env_tag"
+            exit 0
+          fi
+
+          first_line="$(printf '%s\n' "$COMMIT_MESSAGE" | head -n1)"
+          bump="patch"
+          if printf '%s' "$COMMIT_MESSAGE" | grep -Eq 'BREAKING CHANGE:|BREAKING-CHANGE:' || [[ "$first_line" =~ ^[a-zA-Z]+(\([^)]+\))?!: ]]; then
+            bump="major"
+          elif [[ "$first_line" =~ ^feat(\([^)]+\))?: ]]; then
+            bump="minor"
+          fi
+
+          backend_latest_version="$(
+            curl -fsSL "https://hub.docker.com/v2/repositories/${DOCKERHUB_NAMESPACE}/backend/tags?page_size=100" \
+              | jq -r '.results[].name' \
+              | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V \
+              | tail -n1
+          )"
+
+          worker_latest_version="$(
+            curl -fsSL "https://hub.docker.com/v2/repositories/${DOCKERHUB_NAMESPACE}/worker/tags?page_size=100" \
+              | jq -r '.results[].name' \
+              | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V \
+              | tail -n1
+          )"
+
+          next_version_from_base() {
+            local base_version="$1"
+            local version_bump="$2"
+            local major minor patch
+            IFS='.' read -r major minor patch <<< "$base_version"
+            if [[ "$version_bump" == "major" ]]; then
+              major=$((major + 1))
+              minor=0
+              patch=0
+            elif [[ "$version_bump" == "minor" ]]; then
+              minor=$((minor + 1))
+              patch=0
+            else
+              patch=$((patch + 1))
+            fi
+            echo "${major}.${minor}.${patch}"
+          }
+
+          backend_next_version="$(next_version_from_base "${backend_latest_version:-0.0.0}" "$bump")"
+          worker_next_version="$(next_version_from_base "${worker_latest_version:-0.0.0}" "$bump")"
+
+          echo "bump=$bump" >> "$GITHUB_OUTPUT"
+          echo "backend_version_tag=$backend_next_version" >> "$GITHUB_OUTPUT"
+          echo "worker_version_tag=$worker_next_version" >> "$GITHUB_OUTPUT"
+          echo "[MOCK] Conventional Commit first line: $first_line"
+          echo "[MOCK] Semver bump from Conventional Commits: $bump"
+          echo "[MOCK] Backend latest: ${backend_latest_version:-<none>} -> next: $backend_next_version"
+          echo "[MOCK] Worker latest: ${worker_latest_version:-<none>} -> next: $worker_next_version"
+
   ci:
     runs-on: ubuntu-latest
+    needs: [resolve-version]
     strategy:
       matrix:
         app: [backend, worker]
@@ -31,27 +117,25 @@ jobs:
         run: |
           echo "[MOCK] docker buildx create --use"
 
-      - name: Determine image tag
-        id: image-tag
-        run: |
-          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            echo "tag=prod" >> "$GITHUB_OUTPUT"
-          elif [[ "${GITHUB_REF_NAME}" == "uat" ]]; then
-            echo "tag=uat" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=dev" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build and push (mock)
+        env:
+          ENV_TAG: ${{ needs.resolve-version.outputs.env_tag }}
+          APP_VERSION_TAG: ${{ matrix.app == 'backend' && needs.resolve-version.outputs.backend_version_tag || needs.resolve-version.outputs.worker_version_tag }}
         run: |
-          echo "[MOCK] docker build -t rywj/${{ matrix.app }}:${{ steps.image-tag.outputs.tag }} ./${{ matrix.app }}"
-          echo "[MOCK] docker tag rywj/${{ matrix.app }}:${{ steps.image-tag.outputs.tag }} rywj/${{ matrix.app }}:${{ github.sha }}"
-          echo "[MOCK] docker push rywj/${{ matrix.app }}:${{ steps.image-tag.outputs.tag }}"
+          echo "[MOCK] docker build -t rywj/${{ matrix.app }}:${ENV_TAG} ./${{ matrix.app }}"
+          if [[ "${ENV_TAG}" == "prod" ]]; then
+            echo "[MOCK] docker tag rywj/${{ matrix.app }}:${ENV_TAG} rywj/${{ matrix.app }}:${APP_VERSION_TAG}"
+          fi
+          echo "[MOCK] docker tag rywj/${{ matrix.app }}:${ENV_TAG} rywj/${{ matrix.app }}:${{ github.sha }}"
+          echo "[MOCK] docker push rywj/${{ matrix.app }}:${ENV_TAG}"
+          if [[ "${ENV_TAG}" == "prod" ]]; then
+            echo "[MOCK] docker push rywj/${{ matrix.app }}:${APP_VERSION_TAG}"
+          fi
           echo "[MOCK] docker push rywj/${{ matrix.app }}:${{ github.sha }}"
 
   cd:
     runs-on: ubuntu-latest
-    needs: [ci]
+    needs: [resolve-version, ci]
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -98,6 +182,12 @@ jobs:
           MINIO_SECRET_KEY: ${{ secrets.PROD_MINIO_SECRET_KEY }}
         run: |
           echo "[MOCK] kubectl -n \"$NAMESPACE\" create secret generic agnos-app-secrets --from-literal=MINIO_ACCESS_KEY=*** --from-literal=MINIO_SECRET_KEY=*** --dry-run=client -o yaml | kubectl apply -f -"
+
+      - name: Mock update prod overlay image tags
+        if: steps.env.outputs.env == 'prod'
+        run: |
+          echo "[MOCK] kustomize edit set image rywj/backend=rywj/backend:${{ needs.resolve-version.outputs.backend_version_tag }} (k8s/overlays/prod)"
+          echo "[MOCK] kustomize edit set image rywj/worker=rywj/worker:${{ needs.resolve-version.outputs.worker_version_tag }} (k8s/overlays/prod)"
 
       - name: Deployment to Kube (mock)
         run: |
