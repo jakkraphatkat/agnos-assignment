@@ -207,7 +207,7 @@ Step-by-step:
 2. Use shared resolver job outputs (`env_tag`, `backend_version_tag`, `worker_version_tag`) for image tagging.
 3. Docker Hub login step is mocked (no real registry login in current workflow).
 4. QEMU + Buildx setup steps are mocked.
-5. Image build/tag/push stage is mocked and logs mock `docker build`, `docker tag`, and `docker push` commands for env tag and commit SHA tag. On `main` (`prod`), CI consumes the version tags calculated by the shared resolver from Docker Hub + Conventional Commits: https://www.conventionalcommits.org/en/v1.0.0/
+5. Image build/tag/push stage is mocked and logs mock `docker build`, `docker tag`, and `docker push` commands for env tag and commit SHA tag. On `main` (`prod`), CI consumes version tags calculated by the shared resolver from mocked base versions + Conventional Commits: https://www.conventionalcommits.org/en/v1.0.0/
 6. Mock version bump rules for prod:
 - `major`: commit contains `BREAKING CHANGE:` or header uses `!` (example: `feat(api)!: ...`)
 - `minor`: commit header starts with `feat:`
