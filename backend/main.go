@@ -20,7 +20,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer store.Close()
+	defer func() {
+		if closeErr := store.Close(); closeErr != nil {
+			logJSON("error", "backend store close failed", map[string]any{
+				"error": closeErr.Error(),
+			})
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
