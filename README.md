@@ -204,10 +204,14 @@ Execution model:
 
 Step-by-step:
 1. Checkout only service directory (sparse checkout).
-2. Docker Hub login step is mocked (no real registry login in current workflow).
-3. QEMU + Buildx setup steps are mocked.
-4. Determine environment tag from branch (`dev|uat|prod`).
-5. Image build/tag/push stage is mocked and logs mock `docker build`, `docker tag`, and `docker push` commands for both env tag and commit SHA tag.
+2. Use shared resolver job outputs (`env_tag`, `backend_version_tag`, `worker_version_tag`) for image tagging.
+3. Docker Hub login step is mocked (no real registry login in current workflow).
+4. QEMU + Buildx setup steps are mocked.
+5. Image build/tag/push stage is mocked and logs mock `docker build`, `docker tag`, and `docker push` commands for env tag and commit SHA tag. On `main` (`prod`), CI consumes the version tags calculated by the shared resolver from Docker Hub + Conventional Commits: https://www.conventionalcommits.org/en/v1.0.0/
+6. Mock version bump rules for prod:
+- `major`: commit contains `BREAKING CHANGE:` or header uses `!` (example: `feat(api)!: ...`)
+- `minor`: commit header starts with `feat:`
+- `patch`: all other commits (including `fix:`, `chore:`, `docs:`, etc.)
 
 Expected tags (when real push is enabled):
 - `rywj/backend:<env-tag>`
@@ -217,14 +221,15 @@ Expected tags (when real push is enabled):
 
 #### CD job (`cd`)
 Dependency:
-- Runs only after successful `ci` job.
+- Runs only after successful `resolve-version` and `ci` jobs.
 
 Step-by-step:
 1. Checkout only `k8s` manifests (sparse checkout).
 2. Resolve target environment + namespace from branch.
-3. Create/update `agnos-app-secrets` in target namespace using env-specific GitHub secrets.
-4. Deployment stage is currently mocked and logs mock `kubectl apply -k ./k8s/overlays/<env>` command.
-5. Verify rollout with:
+3. Use shared resolver outputs to mock-update backend/worker image tags in prod overlay.
+4. Create/update `agnos-app-secrets` in target namespace using env-specific GitHub secrets.
+5. Deployment stage is currently mocked and logs mock `kubectl apply -k ./k8s/overlays/<env>` command.
+6. Verify rollout with:
 - `kubectl rollout status deployment/backend`
 - `kubectl rollout status deployment/worker`
 - `kubectl rollout status deployment/minio`

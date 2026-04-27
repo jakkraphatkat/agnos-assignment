@@ -11,6 +11,7 @@ jobs:
   quality-gates:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         app: [backend, worker]
     steps:
@@ -27,7 +28,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "lts"
+          node-version: 24
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -39,20 +40,29 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.11
-          args: ./${{ matrix.app }}
+          working-directory: ${{ matrix.app }}
+          args: ./...
 
       - name: Unit tests
-        run: go test ./${{ matrix.app }}
+        if: always()
+        working-directory: ./${{ matrix.app }}
+        run: go test ./...
 
       - name: Depcheck
-        uses: dependency-check/Dependency-Check_Action@v1.1.0
+        if: always()
+        uses: dependency-check/Dependency-Check_Action@main
         id: depcheck
+        env:
+          # actions/setup-java updates JAVA_HOME on the runner; depcheck action expects container JAVA_HOME.
+          JAVA_HOME: /opt/jdk
         with:
           project: go-dem
           path: ./${{ matrix.app }}
           format: HTML
           out: ./${{ matrix.app }}-odc-reports
           args: >
+            --enableExperimental
+            --exclude '**/*.exe'
             --failOnCVSS 7
             --enableRetired
 
