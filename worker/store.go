@@ -104,7 +104,15 @@ func (s *Store) getRecord(ctx context.Context, objectName string) (Record, error
 	if err != nil {
 		return Record{}, fmt.Errorf("get object %q: %w", objectName, err)
 	}
-	defer reader.Close()
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			logJSON("error", "close object reader failed", map[string]any{
+				"bucket": s.bucket,
+				"object": objectName,
+				"error":  closeErr.Error(),
+			})
+		}
+	}()
 
 	payload, err := io.ReadAll(reader)
 	if err != nil {
