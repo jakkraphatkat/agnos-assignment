@@ -39,10 +39,12 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.11
-          args: ./${{ matrix.app }}
+          working-directory: ${{ matrix.app }}
+          args: ./...
 
       - name: Unit tests
-        run: go test ./${{ matrix.app }}
+        working-directory: ./${{ matrix.app }}
+        run: go test ./...
 
       - name: Depcheck
         uses: dependency-check/Dependency-Check_Action@1.1.0
