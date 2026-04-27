@@ -45,7 +45,7 @@ jobs:
         run: go test ./${{ matrix.app }}
 
       - name: Depcheck
-        uses: dependency-check/Dependency-Check_Action@v1.1.0
+        uses: dependency-check/Dependency-Check_Action@1.1.0
         id: depcheck
         with:
           project: go-dem
