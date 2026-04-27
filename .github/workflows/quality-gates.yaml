@@ -50,7 +50,7 @@ jobs:
 
       - name: Depcheck
         if: always()
-        uses: dependency-check/Dependency-Check_Action@1.1.0
+        uses: dependency-check/Dependency-Check_Action@main
         id: depcheck
         env:
           # actions/setup-java updates JAVA_HOME on the runner; depcheck action expects container JAVA_HOME.
@@ -59,7 +59,8 @@ jobs:
           project: go-dem
           path: ./${{ matrix.app }}
           format: HTML
-          others: >
+          out: ./${{ matrix.app }}-odc-reports
+          args: >
             --failOnCVSS 7
             --enableRetired
 
@@ -68,4 +69,4 @@ jobs:
         if: always()
         with:
           name: ${{ matrix.app }}-odc-reports
-          path: ./reports
+          path: ./${{ matrix.app }}-odc-reports
