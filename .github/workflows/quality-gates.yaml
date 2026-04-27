@@ -61,6 +61,8 @@ jobs:
           format: HTML
           out: ./${{ matrix.app }}-odc-reports
           args: >
+            --enableExperimental
+            --exclude '**/*.exe'
             --failOnCVSS 7
             --enableRetired
 
